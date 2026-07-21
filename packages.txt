@@ -1,0 +1,5 @@
+tesseract-ocr
+tesseract-ocr-por
+poppler-utils
+chromium
+chromium-driver
