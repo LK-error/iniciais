@@ -8,6 +8,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys
 import time
 import io
 import datetime
@@ -128,9 +129,19 @@ def buscar_endereco_cobrare(pesquisa_devedor):
         wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, '/controleDivida/negociacao')]"))).click()
         
         campo_busca = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@aria-controls='negociacao']")))
+        
+        # 1. Limpa o campo por garantia
+        campo_busca.clear()
+        
+        # 2. Digita o CPF
         cpf_limpo = pesquisa_devedor.replace(".", "").replace("-", "")
         campo_busca.send_keys(cpf_limpo)
-        time.sleep(2)
+        
+        # 3. Força um "Enter" no teclado
+        campo_busca.send_keys(Keys.ENTER)
+        
+        # 4. Aumenta a pausa para o sistema ter tempo de filtrar a tabela e ocultar os devedores antigos
+        time.sleep(4)
         
         botao_editar = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, '/edit') and contains(@class, 'btn-mini')]")))
         botao_editar.click()
