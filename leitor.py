@@ -106,6 +106,11 @@ def buscar_endereco_cobrare(pesquisa_devedor):
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
+
+    # ADICIONE ESTAS DUAS LINHAS:
+    chrome_options.add_argument("--window-size=1920,1080") # Força uma tela Full HD
+    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36") # Finge ser um PC normal
+    # ----------------------------------------------------
     # ----------------------------------------------------
     
     driver = webdriver.Chrome(options=chrome_options)
@@ -271,6 +276,11 @@ if st.button("Processar e Gerar Inicial"):
         if dados_minerados['cpf_devedor']:
             with st.spinner("Buscando endereço no COBRARE..."):
                 endereco_cobrare = buscar_endereco_cobrare(dados_minerados['cpf_devedor'])
+                
+                # Se for texto (erro) e não dicionário, mostramos na tela!
+                if isinstance(endereco_cobrare, str):
+                    st.error(f"Detalhe do erro: {endereco_cobrare}")
+                    
                 qualificacao_devedor = atualizar_endereco_devedor(
                     qualificacao_devedor, 
                     endereco_cobrare, 
