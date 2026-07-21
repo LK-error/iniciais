@@ -128,23 +128,38 @@ def buscar_endereco_cobrare(pesquisa_devedor):
         time.sleep(1)
         wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, '/controleDivida/negociacao')]"))).click()
         
-        campo_busca = wait.until(EC.presence_of_element_located((By.XPATH, "//input[@aria-controls='negociacao']")))
+        # 3. Pesquisa do Devedor (Versão Blindada)
+        campo_busca = wait.until(EC.element_to_be_clickable((By.XPATH, "//input[@aria-controls='negociacao']")))
         
-        # 1. Limpa o campo por garantia
+        # Força o navegador a rolar a página até a barra de pesquisa
+        driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", campo_busca)
+        time.sleep(1)
+        
+        # Clica explicitamente e limpa
+        campo_busca.click()
         campo_busca.clear()
         
-        # 2. Digita o CPF
         cpf_limpo = pesquisa_devedor.replace(".", "").replace("-", "")
-        campo_busca.send_keys(cpf_limpo)
         
-        # 3. Força um "Enter" no teclado
+        # Digita simulando um ser humano (um número por vez)
+        for numero in cpf_limpo:
+            campo_busca.send_keys(numero)
+            time.sleep(0.1)
+            
         campo_busca.send_keys(Keys.ENTER)
         
-        # 4. Aumenta a pausa para o sistema ter tempo de filtrar a tabela e ocultar os devedores antigos
-        time.sleep(4)
+        # Pausa longa para a tabela processar e esconder os devedores antigos
+        time.sleep(5)
         
-        botao_editar = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@href, '/edit') and contains(@class, 'btn-mini')]")))
-        botao_editar.click()
+        # Pega a lista de botões "Editar" após o filtro. Se filtrou certo, o botão [0] é o correto!
+        botoes_editar = driver.find_elements(By.XPATH, "//a[contains(@href, '/edit') and contains(@class, 'btn-mini')]")
+        
+        if len(botoes_editar) > 0:
+            botoes_editar[0].click()
+        else:
+            raise Exception("Devedor não encontrado na tabela após o filtro.")
+        
+        # ... continuação do código (aba_info = wait.until...) ...
         
         aba_info = wait.until(EC.element_to_be_clickable((By.XPATH, "//a[contains(@id, 'ui-id-') and contains(@class, 'ui-tabs-anchor')]")))
         aba_info.click()
