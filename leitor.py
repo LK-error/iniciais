@@ -16,7 +16,7 @@ from docx import Document
 from docx.shared import Pt
 
 # Configuração do Tesseract (Comentado para rodar na nuvem)
-# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 ESTADOS_BR = {
     "ACRE": "AC", "ALAGOAS": "AL", "AMAPÁ": "AP", "AMAZONAS": "AM", "BAHIA": "BA",
@@ -364,8 +364,14 @@ if st.button("Processar e Gerar Inicial"):
         
         with st.spinner("Minerando Confissão de Dívida..."):
             texto_confissao = extrair_texto_hibrido(confissao_file.getvalue())
+
+
+            
+
             dados_minerados = minerar_dados_confissao(texto_confissao)
             qualificacao_devedor = dados_minerados["devedor"]
+
+        
             
         if dados_minerados['cpf_devedor']:
             with st.spinner("Buscando endereço no COBRARE..."):
