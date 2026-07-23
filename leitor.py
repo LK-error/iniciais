@@ -16,7 +16,7 @@ from docx import Document
 from docx.shared import Pt
 
 # Configuração do Tesseract (Comentado para rodar na nuvem)
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 ESTADOS_BR = {
     "ACRE": "AC", "ALAGOAS": "AL", "AMAPÁ": "AP", "AMAZONAS": "AM", "BAHIA": "BA",
@@ -76,23 +76,22 @@ def minerar_dados_confissao(texto_bruto):
     if busca_credor: 
         dados["credor"] = busca_credor.group(1).strip()
         
-    # Busca o Devedor (Agora a vírgula antes de "doravante" é opcional)
+    # Busca o Devedor
     busca_devedor = re.search(r"de outro lado,\s*(.*?)(?:,|\s)*doravante denominad[oa]", texto_limpo, re.IGNORECASE)
     if busca_devedor:
         dados["devedor"] = busca_devedor.group(1).strip()
         
-        # Busca o CPF (Agora o "sob o" é opcional e aceita diferentes formatos de "nº")
-        busca_cpf = re.search(r"CPF(?:/MF)?\s*(?:sob o\s*)?n[º°o]?\s*([\d\.\-]+)", dados["devedor"], re.IGNORECASE)
+        # Busca o CPF (Agora aceita espaços no meio, corrigindo quebras de linha no PDF)
+        busca_cpf = re.search(r"CPF(?:/MF)?\s*(?:sob o\s*)?n[º°o]?\s*([\d\.\-\s]{11,18})", dados["devedor"], re.IGNORECASE)
         if busca_cpf: 
-            dados["cpf_devedor"] = busca_cpf.group(1).strip()
+            # Remove os espaços em branco que possam ter quebrado o CPF
+            dados["cpf_devedor"] = busca_cpf.group(1).replace(" ", "").strip()
         
-        # Busca a Cidade (Pega o texto antes do " - RS/SP/etc", ignorando números de CEP que possam estar grudados)
-        busca_cidade = re.search(r"([A-Za-zÀ-ÿ\s]+)\s*-\s*[A-Z]{2}", dados["devedor"])
-        if busca_cidade:
-            cidade_suja = busca_cidade.group(1).strip()
-            # Corta pela última vírgula para isolar apenas o nome da cidade
+        # Busca a Cidade (Agora aceita estado em maiúsculo ou minúsculo, ex: SC ou Sc)
+        matches = re.findall(r"([A-Za-zÀ-ÿ\s]+)\s*-\s*[A-Za-z]{2}", dados["devedor"])
+        if matches:
+            cidade_suja = matches[-1].strip()
             cidade_limpa = cidade_suja.split(',')[-1].strip()
-            # Remove qualquer número (como CEP) que tenha vindo junto
             cidade_limpa = re.sub(r'\d+', '', cidade_limpa).strip()
             dados["cidade_comarca"] = cidade_limpa.upper()
             
@@ -365,8 +364,6 @@ if st.button("Processar e Gerar Inicial"):
         with st.spinner("Minerando Confissão de Dívida..."):
             texto_confissao = extrair_texto_hibrido(confissao_file.getvalue())
 
-
-            
 
             dados_minerados = minerar_dados_confissao(texto_confissao)
             qualificacao_devedor = dados_minerados["devedor"]
