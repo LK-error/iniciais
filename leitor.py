@@ -95,11 +95,13 @@ def minerar_dados_confissao(texto_bruto):
             dados["cpf_devedor"] = busca_cpf.group(1).replace(" ", "").strip()
         
         # Busca a Cidade (Agora aceita estado em maiúsculo ou minúsculo, ex: SC ou Sc)
-        matches = re.findall(r"([A-Za-zÀ-ÿ\s]+)\s*-\s*[A-Za-z]{2}", dados["devedor"])
+        # Busca a Cidade (Nova Lógica Blindada)
+        # Procura por qualquer texto sem vírgula, seguido por qualquer tipo de traço (-, –, —) e 2 letras.
+        matches = re.findall(r"([^,]+)\s*[-–—]\s*[A-Za-z]{2}\b", dados["devedor"])
         if matches:
             cidade_suja = matches[-1].strip()
-            cidade_limpa = cidade_suja.split(',')[-1].strip()
-            cidade_limpa = re.sub(r'\d+', '', cidade_limpa).strip()
+            # Remove qualquer número que possa ter grudado (como o fim de um CEP)
+            cidade_limpa = re.sub(r'\d+', '', cidade_suja).strip()
             dados["cidade_comarca"] = cidade_limpa.upper()
             
     return dados
