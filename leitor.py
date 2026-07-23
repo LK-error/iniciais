@@ -20,6 +20,9 @@ from docx.shared import Pt
 # Configuração Inteligente do Tesseract (Funciona Local e Nuvem)
 if platform.system() == "Windows":
     pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+else:
+    # Força o Linux a usar o caminho padrão e limpa a memória do Streamlit
+    pytesseract.pytesseract.tesseract_cmd = 'tesseract'
 
 ESTADOS_BR = {
     "ACRE": "AC", "ALAGOAS": "AL", "AMAPÁ": "AP", "AMAZONAS": "AM", "BAHIA": "BA",
