@@ -16,7 +16,7 @@ from docx import Document
 from docx.shared import Pt
 
 # Configuração do Tesseract (Comentado para rodar na nuvem)
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 ESTADOS_BR = {
     "ACRE": "AC", "ALAGOAS": "AL", "AMAPÁ": "AP", "AMAZONAS": "AM", "BAHIA": "BA",
@@ -169,13 +169,23 @@ def buscar_endereco_cobrare(pesquisa_devedor):
 
 def atualizar_endereco_devedor(texto_devedor, endereco_cobrare, cidade_comarca):
     if not isinstance(endereco_cobrare, dict): return texto_devedor
+    
     comp = f" - {endereco_cobrare['complemento']}" if endereco_cobrare['complemento'] else ""
     cidade_estado = f"{endereco_cobrare['cidade']} - {endereco_cobrare['estado']}"
     lat, lon = endereco_cobrare.get('latitude', '').strip(), endereco_cobrare.get('longitude', '').strip()
     coords = f", Latitude {lat}, Longitude {lon}" if lat and lon else ""
     
     novo_endereco = f"{endereco_cobrare['logradouro']}, nº {endereco_cobrare['numero']}{comp}, Bairro {endereco_cobrare['bairro']}, CEP {endereco_cobrare['cep']}{coords}, {cidade_estado}"
-    return re.sub(r"(residente\(s\)\s+e\s+domiciliado\(s\)\s+em\s+)(.*)", rf"\g<1>{novo_endereco}", texto_devedor, flags=re.IGNORECASE)
+    
+    # Busca inteligente: acha a palavra residente ou domiciliado e corta o texto logo em seguida!
+    match = re.search(r"(residente|domiciliado)(.*?)(em|na|no)\s+", texto_devedor, re.IGNORECASE)
+    if match:
+        idx = match.end()
+        # Cola o texto original até a palavra "na/no/em" e adiciona o endereço novo do COBRARE
+        return texto_devedor[:idx] + novo_endereco
+    else:
+        # Se não achar nenhuma das palavras (fallback de segurança)
+        return texto_devedor + f", residente e domiciliado em {novo_endereco}"
 
 def minerar_dados_detran(texto_bruto):
     dados = {"marca": "Não encontrada", "placa": "Não encontrada", "ano_modelo": "Não encontrado", "cor": "Não encontrada", "renavam": "Não encontrado", "chassi": "Não encontrado"}
@@ -355,7 +365,7 @@ if st.button("Processar e Gerar Inicial"):
         with st.spinner("Minerando Confissão de Dívida..."):
             texto_confissao = extrair_texto_hibrido(confissao_file.getvalue())
             dados_minerados = minerar_dados_confissao(texto_confissao)
-            qualificacao_devedor = dados_minerados["devedor"] 
+            qualificacao_devedor = dados_minerados["devedor"]
             
         if dados_minerados['cpf_devedor']:
             with st.spinner("Buscando endereço no COBRARE..."):
