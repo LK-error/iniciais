@@ -16,7 +16,7 @@ from docx import Document
 from docx.shared import Pt
 
 # Configuração do Tesseract (Comentado para rodar na nuvem)
-# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 ESTADOS_BR = {
     "ACRE": "AC", "ALAGOAS": "AL", "AMAPÁ": "AP", "AMAZONAS": "AM", "BAHIA": "BA",
@@ -71,17 +71,31 @@ def minerar_dados_confissao(texto_bruto):
     dados = {"credor": "Não encontrado", "devedor": "Não encontrado", "cpf_devedor": None, "cidade_comarca": "Não encontrada"}
     texto_limpo = texto_bruto.replace('\n', ' ').replace('  ', ' ')
     
+    # Busca o Credor
     busca_credor = re.search(r"de um lado,\s*(.*?),\s*(?:representada neste ato|doravante denominada 1ª)", texto_limpo, re.IGNORECASE)
-    if busca_credor: dados["credor"] = busca_credor.group(1).strip()
+    if busca_credor: 
+        dados["credor"] = busca_credor.group(1).strip()
         
-    busca_devedor = re.search(r"de outro lado,\s*(.*?),\s*doravante denominado", texto_limpo, re.IGNORECASE)
+    # Busca o Devedor (Agora a vírgula antes de "doravante" é opcional)
+    busca_devedor = re.search(r"de outro lado,\s*(.*?)(?:,|\s)*doravante denominad[oa]", texto_limpo, re.IGNORECASE)
     if busca_devedor:
         dados["devedor"] = busca_devedor.group(1).strip()
-        busca_cpf = re.search(r"CPF/MF sob o nº\s*([\d\.\-]+)", dados["devedor"])
-        if busca_cpf: dados["cpf_devedor"] = busca_cpf.group(1).strip()
         
-        busca_cidade = re.search(r"([A-Za-zÀ-ÿ\s]+)\s*-\s*[A-Z]{2}(?:\s*,|$)", dados["devedor"])
-        if busca_cidade: dados["cidade_comarca"] = busca_cidade.group(1).strip().upper()
+        # Busca o CPF (Agora o "sob o" é opcional e aceita diferentes formatos de "nº")
+        busca_cpf = re.search(r"CPF(?:/MF)?\s*(?:sob o\s*)?n[º°o]?\s*([\d\.\-]+)", dados["devedor"], re.IGNORECASE)
+        if busca_cpf: 
+            dados["cpf_devedor"] = busca_cpf.group(1).strip()
+        
+        # Busca a Cidade (Pega o texto antes do " - RS/SP/etc", ignorando números de CEP que possam estar grudados)
+        busca_cidade = re.search(r"([A-Za-zÀ-ÿ\s]+)\s*-\s*[A-Z]{2}", dados["devedor"])
+        if busca_cidade:
+            cidade_suja = busca_cidade.group(1).strip()
+            # Corta pela última vírgula para isolar apenas o nome da cidade
+            cidade_limpa = cidade_suja.split(',')[-1].strip()
+            # Remove qualquer número (como CEP) que tenha vindo junto
+            cidade_limpa = re.sub(r'\d+', '', cidade_limpa).strip()
+            dados["cidade_comarca"] = cidade_limpa.upper()
+            
     return dados
 
 def buscar_endereco_cobrare(pesquisa_devedor):
