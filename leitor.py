@@ -6,6 +6,7 @@ import re
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
@@ -99,6 +100,7 @@ def minerar_dados_confissao(texto_bruto):
 
 def buscar_endereco_cobrare(pesquisa_devedor):
     chrome_options = Options()
+    chrome_options.binary_location = "/usr/bin/chromium"  # <-- Mapa do Navegador no Linux
     chrome_options.add_argument("--headless=new") 
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
@@ -106,7 +108,8 @@ def buscar_endereco_cobrare(pesquisa_devedor):
     chrome_options.add_argument("--window-size=1920,1080") 
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36")
     
-    driver = webdriver.Chrome(options=chrome_options)
+    servico = Service("/usr/bin/chromedriver")  # <-- Mapa do Motorista no Linux
+    driver = webdriver.Chrome(service=servico, options=chrome_options)
     wait = WebDriverWait(driver, 15)
     
     try:
