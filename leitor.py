@@ -3,6 +3,7 @@ import fitz  # PyMuPDF
 import pytesseract
 from PIL import Image
 import re
+import platform
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -16,8 +17,9 @@ import datetime
 from docx import Document
 from docx.shared import Pt
 
-# Configuração do Tesseract (Comentado para rodar na nuvem)
-# pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# Configuração Inteligente do Tesseract (Funciona Local e Nuvem)
+if platform.system() == "Windows":
+    pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 ESTADOS_BR = {
     "ACRE": "AC", "ALAGOAS": "AL", "AMAPÁ": "AP", "AMAZONAS": "AM", "BAHIA": "BA",
@@ -52,15 +54,16 @@ def extrair_texto_hibrido(arquivo_bytes):
             pagina = doc.load_page(num_pagina)
             texto_nativo = pagina.get_text()
             
-            # Se não tiver texto, é um PDF escaneado. Vamos "tirar uma foto" da página.
             if len(texto_nativo.strip()) < 50:
-                # O matrix 2x2 dobra a resolução da imagem para o robô ler com perfeição
                 pix = pagina.get_pixmap(matrix=fitz.Matrix(2, 2)) 
                 img_data = pix.tobytes("png")
                 imagem = Image.open(io.BytesIO(img_data))
                 
-                texto_ocr = pytesseract.image_to_string(imagem, lang='por')
-                texto_completo += texto_ocr + "\n"
+                try:
+                    texto_ocr = pytesseract.image_to_string(imagem, lang='por')
+                    texto_completo += texto_ocr + "\n"
+                except Exception as erro_ocr:
+                    st.error(f"⚠️ Erro fatal no OCR da Nuvem: {erro_ocr}")
             else:
                 texto_completo += texto_nativo + "\n"
         doc.close()
@@ -100,7 +103,6 @@ def minerar_dados_confissao(texto_bruto):
 
 def buscar_endereco_cobrare(pesquisa_devedor):
     chrome_options = Options()
-    chrome_options.binary_location = "/usr/bin/chromium"  # <-- Mapa do Navegador no Linux
     chrome_options.add_argument("--headless=new") 
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
@@ -108,8 +110,14 @@ def buscar_endereco_cobrare(pesquisa_devedor):
     chrome_options.add_argument("--window-size=1920,1080") 
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36")
     
-    servico = Service("/usr/bin/chromedriver")  # <-- Mapa do Motorista no Linux
-    driver = webdriver.Chrome(service=servico, options=chrome_options)
+    # Chave Inteligente do Selenium
+    if platform.system() == "Linux":
+        servico = Service("/usr/bin/chromedriver")
+        chrome_options.binary_location = "/usr/bin/chromium"
+        driver = webdriver.Chrome(service=servico, options=chrome_options)
+    else:
+        # Se for no Windows, o Selenium se vira sozinho
+        driver = webdriver.Chrome(options=chrome_options)
     wait = WebDriverWait(driver, 15)
     
     try:
