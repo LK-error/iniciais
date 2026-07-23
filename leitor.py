@@ -208,13 +208,13 @@ def minerar_dados_imovel(texto_bruto):
     # Limpa a leitura OCR, removendo sujeiras visuais
     texto_limpo = texto_bruto.replace('$', '').replace('^{\\circ}', 'º').replace('{', '').replace('}', '').replace('\\', '')
     
-    # Busca o Cartório: Procura exatamente o padrão "01º Cartório - NOME"
-    busca_cartorio = re.search(r"(\d+(?:º|°|o)\s*Cartório\s*-\s*[A-Za-zÀ-ÿ]+)", texto_limpo, re.IGNORECASE)
+    # Busca o Cartório: Aceita "Cartório" com ou sem acento
+    busca_cartorio = re.search(r"(\d+(?:º|°|o)\s*Cart[oó]rio\s*-\s*[A-Za-zÀ-ÿ]+)", texto_limpo, re.IGNORECASE)
     if busca_cartorio:
         dados["cartorio"] = busca_cartorio.group(1).strip()
         
-    # Busca a Matrícula: Pula o CPF (11 a 14 números) e pega o número exato antes do "Sim" ou "Não"
-    busca_matricula = re.search(r"\d{11,14}\s+(\d+)\s+(?:Sim|Não)", texto_limpo, re.IGNORECASE)
+    # Busca a Matrícula: Acha o CPF (11+ números), ignora espaços e pega a matrícula (3 a 8 números)
+    busca_matricula = re.search(r"\d{11,14}\s+(\d{3,8})\s*(?:Sim|Não|S1m|Nao)?", texto_limpo, re.IGNORECASE)
     if busca_matricula:
         dados["matricula"] = busca_matricula.group(1).strip()
         
