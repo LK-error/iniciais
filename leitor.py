@@ -284,7 +284,8 @@ def gerar_documento_word(caminho_modelo, comarca, credor, devedor_qualificado, l
         texto_upper = p.text.strip().upper()
         
         if '[COMARCA]' in p.text:
-            p.text = p.text.replace('[COMARCA]', comarca.upper())
+            # Injeta "COMARCA DE " junto com o nome da cidade para ficar gramaticalmente correto
+            p.text = p.text.replace('[COMARCA]', f"COMARCA DE {comarca.upper()}")
             forcar_paragrafo_bold(p)
             continue
             
