@@ -75,7 +75,7 @@ def extrair_texto_hibrido(arquivo_bytes):
     return texto_completo
 
 def minerar_dados_confissao(texto_bruto):
-    dados = {"credor": "Não encontrado", "devedor": "Não encontrado", "cpf_devedor": None, "cidade_comarca": "Não encontrada"}
+    dados = {"credor": "Não encontrado", "polo_passivo": [], "cidade_comarca": "Não encontrada"}
     texto_limpo = texto_bruto.replace('\n', ' ').replace('  ', ' ')
     
     # Busca o Credor
@@ -83,26 +83,52 @@ def minerar_dados_confissao(texto_bruto):
     if busca_credor: 
         dados["credor"] = busca_credor.group(1).strip()
         
-    # Busca o Devedor
-    busca_devedor = re.search(r"de outro lado,\s*(.*?)(?:,|\s)*doravante denominad[oa]", texto_limpo, re.IGNORECASE)
-    if busca_devedor:
-        dados["devedor"] = busca_devedor.group(1).strip()
+    # Busca todo o bloco do Polo Passivo (entre "de outro lado" e "ajustaram entre si")
+    busca_passivo = re.search(r"de outro lado,\s*(.*?)(?:,|\s)*ajustaram entre si", texto_limpo, re.IGNORECASE)
+    if busca_passivo:
+        bloco_passivo = busca_passivo.group(1).strip()
         
-        # Busca o CPF (Agora aceita espaços no meio, corrigindo quebras de linha no PDF)
-        busca_cpf = re.search(r"CPF(?:/MF)?\s*(?:sob o\s*)?n[º°o]?\s*([\d\.\-\s]{11,18})", dados["devedor"], re.IGNORECASE)
-        if busca_cpf: 
-            # Remove os espaços em branco que possam ter quebrado o CPF
-            dados["cpf_devedor"] = busca_cpf.group(1).replace(" ", "").strip()
-        
-        # Busca a Cidade (Agora aceita estado em maiúsculo ou minúsculo, ex: SC ou Sc)
-        # Busca a Cidade (Nova Lógica Blindada)
-        # Procura por qualquer texto sem vírgula, seguido por qualquer tipo de traço (-, –, —) e 2 letras.
-        matches = re.findall(r"([^,]+)\s*[-–—]\s*[A-Za-z]{2}\b", dados["devedor"])
+        # Pega a comarca blindada do bloco inteiro
+        matches = re.findall(r"([^,]+)\s*[-–—/]\s*[A-Za-z]{2}\b", bloco_passivo)
         if matches:
             cidade_suja = matches[-1].strip()
-            # Remove qualquer número que possa ter grudado (como o fim de um CEP)
-            cidade_limpa = re.sub(r'\d+', '', cidade_suja).strip()
+            # Remove lixos antes da cidade (ex: "Bairro X em Pelotas", "cidade de Dom Pedrito")
+            cidade_limpa = re.sub(r'.*\b(em|na|no|cidade de)\b', '', cidade_suja, flags=re.IGNORECASE).strip()
+            cidade_limpa = re.sub(r'\d+', '', cidade_limpa).strip()
             dados["cidade_comarca"] = cidade_limpa.upper()
+
+        # Divide os devedores usando a palavra "doravante" como separador
+        partes_devedores = re.split(r'doravante denominad[oa]s?', bloco_passivo, flags=re.IGNORECASE)
+        
+        for i, parte in enumerate(partes_devedores):
+            # Procura um CPF em cada pedaço para confirmar que é uma pessoa
+            busca_cpf = re.search(r"CPF(?:/MF)?\s*(?:sob o\s*)?n[º°o]?\s*([\d\.\-\s]{11,18})", parte, re.IGNORECASE)
+            if busca_cpf:
+                cpf_limpo = busca_cpf.group(1).replace(" ", "").strip()
+                
+                # Identifica o papel (Devedor ou Avalista) olhando o início do próximo pedaço (se houver)
+                papel = "Devedor"
+                if i + 1 < len(partes_devedores):
+                    proximo_texto = partes_devedores[i+1].strip().lower()
+                    if "avalista" in proximo_texto[:30]:
+                        papel = "Avalista"
+                    elif "contratante" in proximo_texto[:30]:
+                        papel = "Devedor"
+
+                # Nova limpeza inteligente: Corta apenas os conectores e lixos estruturais do Word, mantendo o nome!
+                qualificacao_limpa = re.sub(
+                    r"^(?:\s*,\s*|\be\b\s*|\b\d+[º°o]s?\s+contratantes?\b\s*|\bsua esposa\b\s*|\bseu marido\b\s*|\b[oa]s?\s+avalistas?\b\s*)+",
+                    "", 
+                    parte.strip(), 
+                    flags=re.IGNORECASE
+                ).strip(', ') # Remove qualquer vírgula solta no final
+                
+                # Adiciona a pessoa encontrada na nossa lista do polo passivo
+                dados["polo_passivo"].append({
+                    "qualificacao": qualificacao_limpa,
+                    "cpf": cpf_limpo,
+                    "papel": papel
+                })
             
     return dados
 
@@ -126,7 +152,7 @@ def buscar_endereco_cobrare(pesquisa_devedor):
     wait = WebDriverWait(driver, 15)
     
     try:
-        driver.get("https://cobrare.atenta.pro/controleDivida/menu")
+        driver.get("https://cobrare.floresativos.com.br/controleDivida/menu")
         wait.until(EC.presence_of_element_located((By.ID, "login"))).send_keys(usuario_cobrare)
         driver.find_element(By.ID, "password").send_keys(senha_cobrare)
         driver.find_element(By.ID, "password").submit()
@@ -178,7 +204,10 @@ def buscar_endereco_cobrare(pesquisa_devedor):
         }
         return dados_sistema
     except Exception as e:
-        return str(e)
+        erro = str(e)
+        if "Stacktrace" in erro or "Timeout" in erro:
+            return "O sistema COBRARE demorou muito para responder (Timeout)."
+        return erro
     finally:
         driver.quit()
 
@@ -273,7 +302,7 @@ def formatar_qualificacao(paragrafo, texto_qualificacao):
         if resto: aplicar_estilo_garamond(paragrafo.add_run(resto))
         if texto_depois: aplicar_estilo_garamond(paragrafo.add_run(texto_depois))
 
-def gerar_documento_word(caminho_modelo, comarca, credor, devedor_qualificado, lista_veiculos, lista_imoveis):
+def gerar_documento_word(caminho_modelo, comarca, credor, polo_passivo, lista_veiculos, lista_imoveis):
     doc = Document(caminho_modelo)
     qualificacao_count = 0
     meses = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"]
@@ -284,7 +313,6 @@ def gerar_documento_word(caminho_modelo, comarca, credor, devedor_qualificado, l
         texto_upper = p.text.strip().upper()
         
         if '[COMARCA]' in p.text:
-            # Injeta "COMARCA DE " junto com o nome da cidade para ficar gramaticalmente correto
             p.text = p.text.replace('[COMARCA]', f"COMARCA DE {comarca.upper()}")
             forcar_paragrafo_bold(p)
             continue
@@ -294,7 +322,39 @@ def gerar_documento_word(caminho_modelo, comarca, credor, devedor_qualificado, l
                 formatar_qualificacao(p, credor)
                 qualificacao_count += 1
             else:
-                formatar_qualificacao(p, devedor_qualificado)
+                # NOVA LÓGICA: Processa cada devedor/avalista individualmente para negritar todos os nomes
+                texto_antes, texto_depois = p.text.split('[QUALIFICAÇÃO COMPLETA]', 1)
+                p.clear()
+                
+                if texto_antes: aplicar_estilo_garamond(p.add_run(texto_antes))
+                
+                for i, pessoa in enumerate(polo_passivo):
+                    texto_qual = pessoa["qualificacao"]
+                    
+                    # Separa o Nome do Resto da qualificação
+                    match = re.search(r',\s*(inscrit|brasileir|pessoa jurídica|com sede|residente|portador|solteir|casad|divorciad|viúv|agricultor|empresári|menor)', texto_qual, re.IGNORECASE)
+                    if match:
+                        idx = match.start()
+                        nome = texto_qual[:idx].strip().upper()
+                        resto = texto_qual[idx:]
+                    else:
+                        partes = texto_qual.split(',', 1)
+                        nome = partes[0].strip().upper()
+                        resto = "," + partes[1] if len(partes) > 1 else ""
+                    
+                    # Injeta o conector se não for a primeira pessoa
+                    if i > 0:
+                        conector = " e da avalista " if pessoa["papel"] == "Avalista" else " e do(a) co-devedor(a) "
+                        aplicar_estilo_garamond(p.add_run(conector))
+                    
+                    # Aplica o Negrito exclusivamente no Nome!
+                    run_nome = aplicar_estilo_garamond(p.add_run(nome))
+                    run_nome.bold = True
+                    
+                    # Adiciona o resto da qualificação com formatação normal
+                    if resto: aplicar_estilo_garamond(p.add_run(resto))
+                    
+                if texto_depois: aplicar_estilo_garamond(p.add_run(texto_depois))
             continue
                 
         if 'Santa Cruz do Sul/RS,' in p.text:
@@ -380,19 +440,21 @@ if st.button("Processar e Gerar Inicial"):
         
         with st.spinner("Minerando Confissão de Dívida..."):
             texto_confissao = extrair_texto_hibrido(confissao_file.getvalue())
-
-
             dados_minerados = minerar_dados_confissao(texto_confissao)
-            qualificacao_devedor = dados_minerados["devedor"]
-
-        
             
-        if dados_minerados['cpf_devedor']:
-            with st.spinner("Buscando endereço no COBRARE..."):
-                endereco_cobrare = buscar_endereco_cobrare(dados_minerados['cpf_devedor'])
-                if isinstance(endereco_cobrare, str):
-                    st.warning(f"Não foi possível buscar no COBRARE. Usando endereço do contrato. (Erro: {endereco_cobrare})")
-                qualificacao_devedor = atualizar_endereco_devedor(qualificacao_devedor, endereco_cobrare, dados_minerados['cidade_comarca'])
+            # --- RAIO-X DO POLO PASSIVO ---
+            st.info(f"🔍 DEBUG: Polo Passivo encontrado -> {dados_minerados['polo_passivo']}")
+            # ------------------------------
+            
+        # Percorre todos os encontrados (Devedores e Avalistas)
+        for pessoa in dados_minerados['polo_passivo']:
+            if pessoa['cpf']:
+                with st.spinner(f"Buscando endereço de {pessoa['papel']} ({pessoa['cpf']}) no COBRARE..."):
+                    endereco_cobrare = buscar_endereco_cobrare(pessoa['cpf'])
+                    if isinstance(endereco_cobrare, str):
+                        st.warning(f"Não foi possível buscar {pessoa['papel']} no COBRARE. Usando endereço do contrato. (Erro: {endereco_cobrare})")
+                    else:
+                        pessoa['qualificacao'] = atualizar_endereco_devedor(pessoa['qualificacao'], endereco_cobrare, dados_minerados['cidade_comarca'])
 
         lista_veiculos = []
         if detran_files:
@@ -406,29 +468,29 @@ if st.button("Processar e Gerar Inicial"):
             for i, certidao in enumerate(imoveis_files):
                 with st.spinner(f"Processando Certidão Imóvel {i+1} ({certidao.name})..."):
                     texto_imovel = extrair_texto_hibrido(certidao.getvalue())
-
                     lista_imoveis.append(minerar_dados_imovel(texto_imovel))
                 
         with st.spinner("Montando o documento final e formatando estilos..."):
             caminho_modelo_word = "1. Modelo inicial execução (confissão de dívida).docx"
             
+            # Passamos o polo_passivo inteiro para o Word
             doc_final_bytes = gerar_documento_word(
                 caminho_modelo_word,
                 dados_minerados['cidade_comarca'],
                 dados_minerados['credor'],
-                qualificacao_devedor,
+                dados_minerados['polo_passivo'],
                 lista_veiculos,
                 lista_imoveis
             )
             
             todos_os_arquivos = [confissao_file] + (detran_files if detran_files else []) + (imoveis_files if imoveis_files else []) + (documentos_extras if documentos_extras else [])
-            enviar_para_onedrive(dados_minerados['credor'], dados_minerados['devedor'], todos_os_arquivos)
+            enviar_para_onedrive(dados_minerados['credor'], "Multiplos_Devedores", todos_os_arquivos)
 
             st.success("✅ Petição Inicial gerada com sucesso!")
             st.download_button(
                 label="⬇️ Baixar Inicial Pronta (.docx)",
                 data=doc_final_bytes,
-                file_name=f"Inicial_Execucao_{dados_minerados['cpf_devedor']}.docx",
+                file_name="Inicial_Execucao.docx",
                 mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
     else:
