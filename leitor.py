@@ -102,12 +102,17 @@ def minerar_dados_confissao(texto_bruto):
     """
     
     # Fila de prioridade com os nomes atualizados dos modelos ativos
-    modelos_fallback = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-pro"]
+    # Fila de prioridade corrigida para as versões 1.5
+    modelos_fallback = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.0-pro"]
     
-    # A chave agora é puxada do Secrets e injetada no cabeçalho com sucesso
+    chave_nuvem = st.secrets["GEMINI_API_KEY"]
+    
+    # --- RAIO-X PARA DESCOBRIR SE A NUVEM ESTÁ LENDO A CHAVE ---
+    st.info(f"🔍 DEBUG NUVEM: A chave carregada começa com '{chave_nuvem[:4]}' e tem {len(chave_nuvem)} caracteres.")
+    
     headers = {
         "Content-Type": "application/json",
-        "x-goog-api-key": st.secrets["GEMINI_API_KEY"]
+        "x-goog-api-key": chave_nuvem
     }
     
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
