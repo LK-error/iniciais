@@ -80,10 +80,6 @@ def extrair_texto_hibrido(arquivo_bytes):
     return texto_completo
 
 def minerar_dados_confissao(texto_bruto):
-    if not api_key_gemini:
-        st.warning("⚠️ Insira a Chave API do Gemini na barra lateral para usar a extração inteligente.")
-        return {"credor": "Erro", "polo_passivo": [], "cidade_comarca": "Erro"}
-
     prompt = f"""
     Você é um assistente jurídico experiente. Leia o contrato abaixo e extraia os dados em um formato JSON estrito.
     Sua tarefa é TRANSCREVER as qualificações mantendo EXATAMENTE as mesmas palavras, frases e jargões originais, corrigindo APENAS os erros de OCR.
@@ -105,44 +101,40 @@ def minerar_dados_confissao(texto_bruto):
     {texto_bruto}
     """
     
-    # Fila de prioridade: do mais rápido para o mais potente
-    modelos_fallback = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-pro"]
+    # Fila de prioridade com os nomes atualizados dos modelos ativos
+    modelos_fallback = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-pro"]
     
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
+    # A chave agora é puxada do Secrets e injetada no cabeçalho com sucesso
+    headers = {
+        "Content-Type": "application/json",
+        "x-goog-api-key": st.secrets["GEMINI_API_KEY"]
     }
     
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    
     for modelo in modelos_fallback:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={api_key_gemini}"
+        # URL limpa, sem o parâmetro da chave
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent"
         
         try:
             resposta = requests.post(url, headers=headers, json=payload)
             dados = resposta.json()
             
-            # Verifica se o Google retornou um erro
             if "error" in dados:
                 mensagem_erro = dados['error'].get('message', '').lower()
-                
-                # Se o erro for de congestionamento (high demand) ou modelo indisponível, tenta o próximo
                 if "high demand" in mensagem_erro or "not found" in mensagem_erro:
                     continue 
                 else:
-                    # Se for erro grave (ex: chave vencida), trava o sistema e avisa
                     st.error(f"⚠️ Erro fatal no Google: {dados['error'].get('message')}")
                     return {"credor": "Erro", "polo_passivo": [], "cidade_comarca": "Erro"}
             
-            # Se passou pelos erros, captura o texto e sai do loop na hora!
             texto_json = dados["candidates"][0]["content"]["parts"][0]["text"]
             texto_json = texto_json.strip().removeprefix('```json').removesuffix('```').strip()
-            
             return json.loads(texto_json)
             
         except Exception as e:
-            # Se cair a internet no meio da requisição, tenta o próximo da fila
             continue
             
-    # Se testar os 3 modelos e os 3 estiverem congestionados ao mesmo tempo (raríssimo)
     st.error("⚠️ Todos os servidores do Google estão superlotados neste exato momento. Aguarde 1 minuto e tente novamente.")
     return {"credor": "Erro", "polo_passivo": [], "cidade_comarca": "Erro"}
 
