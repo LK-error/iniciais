@@ -4,6 +4,10 @@ import pytesseract
 from PIL import Image
 import re
 import platform
+import requests
+import json
+import json
+import base64
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
@@ -40,11 +44,12 @@ ESTADOS_BR = {
 st.set_page_config(page_title="Gerador de Iniciais", layout="wide")
 st.sidebar.title("🔐 Configurações")
 
-usuario_salvo = st.secrets.get("COBRARE_USER", "")
-senha_salva = st.secrets.get("COBRARE_PASSWORD", "")
+# 1. Chave API embutida e totalmente invisível na interface
+api_key_gemini = "AQ.AQ.Ab8RN6JF-2v8bCKuaU9l5uZwY8JaKZsjtce0Rwo-Sb-EJy16FA"
 
-usuario_cobrare = st.sidebar.text_input("Usuário do COBRARE", value=usuario_salvo)
-senha_cobrare = st.sidebar.text_input("Senha do COBRARE", type="password", value=senha_salva)
+# 2. Credenciais do COBRARE salvas por padrão
+usuario_cobrare = st.sidebar.text_input("Usuário do COBRARE", value="AUGUSTO BRINK")
+senha_cobrare = st.sidebar.text_input("Senha do COBRARE", type="password", value="FL2024")
 
 # ==========================================
 # Módulos de Extração e Automação Web
@@ -75,62 +80,71 @@ def extrair_texto_hibrido(arquivo_bytes):
     return texto_completo
 
 def minerar_dados_confissao(texto_bruto):
-    dados = {"credor": "Não encontrado", "polo_passivo": [], "cidade_comarca": "Não encontrada"}
-    texto_limpo = texto_bruto.replace('\n', ' ').replace('  ', ' ')
+    if not api_key_gemini:
+        st.warning("⚠️ Insira a Chave API do Gemini na barra lateral para usar a extração inteligente.")
+        return {"credor": "Erro", "polo_passivo": [], "cidade_comarca": "Erro"}
+
+    prompt = f"""
+    Você é um assistente jurídico experiente. Leia o contrato abaixo e extraia os dados em um formato JSON estrito.
+    Sua tarefa é TRANSCREVER as qualificações mantendo EXATAMENTE as mesmas palavras, frases e jargões originais, corrigindo APENAS os erros de OCR.
     
-    # Busca o Credor
-    busca_credor = re.search(r"de um lado,\s*(.*?),\s*(?:representada neste ato|doravante denominada 1ª)", texto_limpo, re.IGNORECASE)
-    if busca_credor: 
-        dados["credor"] = busca_credor.group(1).strip()
-        
-    # Busca todo o bloco do Polo Passivo (entre "de outro lado" e "ajustaram entre si")
-    busca_passivo = re.search(r"de outro lado,\s*(.*?)(?:,|\s)*ajustaram entre si", texto_limpo, re.IGNORECASE)
-    if busca_passivo:
-        bloco_passivo = busca_passivo.group(1).strip()
-        
-        # Pega a comarca blindada do bloco inteiro
-        matches = re.findall(r"([^,]+)\s*[-–—/]\s*[A-Za-z]{2}\b", bloco_passivo)
-        if matches:
-            cidade_suja = matches[-1].strip()
-            # Remove lixos antes da cidade (ex: "Bairro X em Pelotas", "cidade de Dom Pedrito")
-            cidade_limpa = re.sub(r'.*\b(em|na|no|cidade de)\b', '', cidade_suja, flags=re.IGNORECASE).strip()
-            cidade_limpa = re.sub(r'\d+', '', cidade_limpa).strip()
-            dados["cidade_comarca"] = cidade_limpa.upper()
+    O JSON deve ter EXATAMENTE esta estrutura:
+    {{
+      "credor": "TRANSCRIÇÃO LITERAL da qualificação do credor (Nome, tipo de pessoa, CNPJ e endereço). Mantenha as palavras originais, corrigindo apenas erros de digitação. PARE a transcrição no final do endereço. OBRIGATÓRIO: EXCLUA qualquer texto a partir de 'representada por', 'neste ato representada', 'doravante denominada' ou similares.",
+      "cidade_comarca": "Apenas o nome da cidade escolhida como Foro. Se o contrato indicar 'foro de domicílio do devedor', preencha com a cidade onde o devedor reside.",
+      "polo_passivo": [
+        {{
+          "qualificacao": "TRANSCRIÇÃO LITERAL da qualificação da pessoa COMEÇANDO PELO NOME e TERMINANDO NO FINAL DO ENDEREÇO. OBRIGATÓRIO: EXCLUA qualquer menção a 'código' e seus respectivos números que apareçam logo após o nome (pule direto do Nome para a nacionalidade). Mantenha outros dados como latitude/longitude e telefone. Corrija erros de OCR e formate o CPF (xxx.xxx.xxx-xx). PARE a transcrição antes de termos como 'doravante denominado', 'pertencente à região', 'têm, entre si' ou 'ajustaram'.",
+          "cpf": "CPF formatado (xxx.xxx.xxx-xx)",
+          "papel": "Devedor ou Avalista"
+        }}
+      ]
+    }}
 
-        # Divide os devedores usando a palavra "doravante" como separador
-        partes_devedores = re.split(r'doravante denominad[oa]s?', bloco_passivo, flags=re.IGNORECASE)
+    Texto do Contrato:
+    {texto_bruto}
+    """
+    
+    # Fila de prioridade: do mais rápido para o mais potente
+    modelos_fallback = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-pro"]
+    
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}]
+    }
+    
+    for modelo in modelos_fallback:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{modelo}:generateContent?key={api_key_gemini}"
         
-        for i, parte in enumerate(partes_devedores):
-            # Procura um CPF em cada pedaço para confirmar que é uma pessoa
-            busca_cpf = re.search(r"CPF(?:/MF)?\s*(?:sob o\s*)?n[º°o]?\s*([\d\.\-\s]{11,18})", parte, re.IGNORECASE)
-            if busca_cpf:
-                cpf_limpo = busca_cpf.group(1).replace(" ", "").strip()
-                
-                # Identifica o papel (Devedor ou Avalista) olhando o início do próximo pedaço (se houver)
-                papel = "Devedor"
-                if i + 1 < len(partes_devedores):
-                    proximo_texto = partes_devedores[i+1].strip().lower()
-                    if "avalista" in proximo_texto[:30]:
-                        papel = "Avalista"
-                    elif "contratante" in proximo_texto[:30]:
-                        papel = "Devedor"
-
-                # Nova limpeza inteligente: Corta apenas os conectores e lixos estruturais do Word, mantendo o nome!
-                qualificacao_limpa = re.sub(
-                    r"^(?:\s*,\s*|\be\b\s*|\b\d+[º°o]s?\s+contratantes?\b\s*|\bsua esposa\b\s*|\bseu marido\b\s*|\b[oa]s?\s+avalistas?\b\s*)+",
-                    "", 
-                    parte.strip(), 
-                    flags=re.IGNORECASE
-                ).strip(', ') # Remove qualquer vírgula solta no final
-                
-                # Adiciona a pessoa encontrada na nossa lista do polo passivo
-                dados["polo_passivo"].append({
-                    "qualificacao": qualificacao_limpa,
-                    "cpf": cpf_limpo,
-                    "papel": papel
-                })
+        try:
+            resposta = requests.post(url, headers=headers, json=payload)
+            dados = resposta.json()
             
-    return dados
+            # Verifica se o Google retornou um erro
+            if "error" in dados:
+                mensagem_erro = dados['error'].get('message', '').lower()
+                
+                # Se o erro for de congestionamento (high demand) ou modelo indisponível, tenta o próximo
+                if "high demand" in mensagem_erro or "not found" in mensagem_erro:
+                    continue 
+                else:
+                    # Se for erro grave (ex: chave vencida), trava o sistema e avisa
+                    st.error(f"⚠️ Erro fatal no Google: {dados['error'].get('message')}")
+                    return {"credor": "Erro", "polo_passivo": [], "cidade_comarca": "Erro"}
+            
+            # Se passou pelos erros, captura o texto e sai do loop na hora!
+            texto_json = dados["candidates"][0]["content"]["parts"][0]["text"]
+            texto_json = texto_json.strip().removeprefix('```json').removesuffix('```').strip()
+            
+            return json.loads(texto_json)
+            
+        except Exception as e:
+            # Se cair a internet no meio da requisição, tenta o próximo da fila
+            continue
+            
+    # Se testar os 3 modelos e os 3 estiverem congestionados ao mesmo tempo (raríssimo)
+    st.error("⚠️ Todos os servidores do Google estão superlotados neste exato momento. Aguarde 1 minuto e tente novamente.")
+    return {"credor": "Erro", "polo_passivo": [], "cidade_comarca": "Erro"}
 
 def buscar_endereco_cobrare(pesquisa_devedor):
     chrome_options = Options()
@@ -168,14 +182,30 @@ def buscar_endereco_cobrare(pesquisa_devedor):
         campo_busca.click()
         campo_busca.clear()
         
-        cpf_limpo = pesquisa_devedor.replace(".", "").replace("-", "")
+        # 1. Tira uma "foto" do botão antigo antes de fazer a pesquisa
+        botoes_antigos = driver.find_elements(By.XPATH, "//a[contains(@href, '/edit') and contains(@class, 'btn-mini')]")
+        botao_antigo = botoes_antigos[0] if len(botoes_antigos) > 0 else None
+        
+        # 2. Limpa e digita o CPF
+        cpf_limpo = re.sub(r'[^\d]', '', pesquisa_devedor)
         for numero in cpf_limpo:
             campo_busca.send_keys(numero)
-            time.sleep(0.1)
+            time.sleep(0.05)
             
         campo_busca.send_keys(Keys.ENTER)
-        time.sleep(5)
         
+        # 3. A TRAVA INTELIGENTE: O robô só avança quando o botão antigo sumir da tela
+        if botao_antigo:
+            try:
+                wait.until(EC.staleness_of(botao_antigo))
+            except:
+                time.sleep(2) # Fallback de segurança
+        else:
+            time.sleep(3)
+            
+        time.sleep(1.5) # Respiro extra para a tabela nova terminar de piscar na tela
+        
+        # 4. Agora sim, captura o botão do devedor correto e clica
         botoes_editar = driver.find_elements(By.XPATH, "//a[contains(@href, '/edit') and contains(@class, 'btn-mini')]")
         if len(botoes_editar) > 0:
             botoes_editar[0].click()
@@ -279,7 +309,7 @@ def forcar_paragrafo_bold(paragrafo):
     run.bold = True
 
 def formatar_qualificacao(paragrafo, texto_qualificacao):
-    match = re.search(r',\s*(inscrit|brasileir|pessoa jurídica|com sede|residente|portador|solteir|casad|divorciad|viúv|agricultor|empresári|menor)', texto_qualificacao, re.IGNORECASE)
+    match = re.search(r',\s*(inscrit|brasileir|pessoa jurídica|entidade|sociedade|associação|com sede|residente|portador|solteir|casad|divorciad|viúv|agricultor|empresári|menor)', texto_qualificacao, re.IGNORECASE)
     
     if match:
         idx = match.start()
@@ -332,7 +362,7 @@ def gerar_documento_word(caminho_modelo, comarca, credor, polo_passivo, lista_ve
                     texto_qual = pessoa["qualificacao"]
                     
                     # Separa o Nome do Resto da qualificação
-                    match = re.search(r',\s*(inscrit|brasileir|pessoa jurídica|com sede|residente|portador|solteir|casad|divorciad|viúv|agricultor|empresári|menor)', texto_qual, re.IGNORECASE)
+                    match = re.search(r',\s*(inscrit|brasileir|pessoa jurídica|entidade|sociedade|associação|com sede|residente|portador|solteir|casad|divorciad|viúv|agricultor|empresári|menor)', texto_qual, re.IGNORECASE)
                     if match:
                         idx = match.start()
                         nome = texto_qual[:idx].strip().upper()
@@ -440,6 +470,12 @@ if st.button("Processar e Gerar Inicial"):
         
         with st.spinner("Minerando Confissão de Dívida..."):
             texto_confissao = extrair_texto_hibrido(confissao_file.getvalue())
+            
+            # --- NOVO RAIO-X: O QUE O ROBÔ LEU ---
+            st.warning("⚠️ DEBUG: Texto Bruto Extraído (Visão do Robô):")
+            st.text(texto_confissao[:1500])
+            # -------------------------------------
+            
             dados_minerados = minerar_dados_confissao(texto_confissao)
             
             # --- RAIO-X DO POLO PASSIVO ---
@@ -495,3 +531,9 @@ if st.button("Processar e Gerar Inicial"):
             )
     else:
         st.error("⚠️ O arquivo da Confissão de Dívida é obrigatório.")
+
+    def exibir_preview_pdf(arquivo_bytes):
+    # Converte o PDF para texto base64 e injeta em um visualizador HTML
+        base64_pdf = base64.b64encode(arquivo_bytes).decode('utf-8')
+        pdf_display = f'<iframe src="data:application/pdf;base64,{base64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
+        st.markdown(pdf_display, unsafe_allow_html=True)
