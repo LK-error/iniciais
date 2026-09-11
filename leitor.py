@@ -44,8 +44,8 @@ ESTADOS_BR = {
 st.set_page_config(page_title="Gerador de Iniciais", layout="wide")
 st.sidebar.title("🔐 Configurações")
 
-# 1. Chave API embutida e totalmente invisível na interface
-api_key_gemini = "AQ.AQ.Ab8RN6JF-2v8bCKuaU9l5uZwY8JaKZsjtce0Rwo-Sb-EJy16FA"
+# Puxa a chave de forma segura direto do painel do Streamlit Cloud
+api_key_gemini = st.secrets["GEMINI_API_KEY"]
 
 # 2. Credenciais do COBRARE salvas por padrão
 usuario_cobrare = st.sidebar.text_input("Usuário do COBRARE", value="AUGUSTO BRINK")
